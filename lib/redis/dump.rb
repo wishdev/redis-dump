@@ -30,7 +30,8 @@ class Redis
     attr_reader :redis_connections
     def initialize(dbs=nil,uri="redis://#{Redis::Dump.host}:#{Redis::Dump.port}")
       @redis_connections = {}
-      @uri = uri
+      @uri = URI.parse uri
+      dbs = @uri.db if dbs.nil? && uri.db?
       unless dbs.nil?
         @dbs = Range === dbs ? dbs : (dbs..dbs)
         @dbs = (@dbs.first.to_i..@dbs.last.to_i) # enforce integers
@@ -38,11 +39,12 @@ class Redis
       end
     end
     def redis(db)
-      redis_connections["#{uri}/#{db}"] ||= connect("#{uri}/#{db}")
+      uri.db = db
+      redis_connections[uri.serverid] ||= connect(uri)
     end
     def connect(this_uri)
       #self.class.ld 'CONNECT: ' << this_uri
-      Redis.connect :url => this_uri
+      Redis.connect this_uri.conf
     end
 
     def each_database
@@ -132,7 +134,9 @@ class Redis
     def load(string_or_stream, &each_record)
       count = 0
       Redis::Dump.ld " LOAD SOURCE: #{string_or_stream}"
-      MultiJson.load string_or_stream do |obj|
+      data = MultiJson.load(string_or_stream)
+      data.each do |obj|
+        Redis::Dump.ld obj
         unless @dbs.member?(obj["db"].to_i)
           Redis::Dump.ld "db out of range: #{obj["db"]}"
           next
